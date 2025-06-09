@@ -1,0 +1,2444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Voxel Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/"
+            }
+        }
+    </script>
+    <style>
+        :root {
+            --primary-bg: #111827; 
+            --secondary-bg: #1f2937; 
+            --top-bar-bg: #1f2937; 
+            --menu-bg: #1f2937;
+            --menu-item-hover-bg: #374151; 
+            --toolbar-bg: #1f2937; 
+            --surface-bg: #374151; 
+            --border-color: #4b5563; 
+            --subtle-border-color: #374151; 
+            --text-primary: #f3f4f6; 
+            --text-secondary: #9ca3af; 
+            --text-placeholder: #6b7280; 
+
+            --accent-color: #2563eb; 
+            --accent-hover-color: #1d4ed8; 
+            --accent-text-color: #eff6ff; 
+            
+            --danger-color: #dc2626; 
+            --danger-hover-color: #b91c1c; 
+            --selection-emissive-color: 0x00ffff; 
+            --marquee-border-color: rgba(0, 255, 255, 0.7); 
+            --preview-voxel-opacity: 0.4;
+
+
+            --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+            --default-radius: 0.5rem; /* Tailwind rounded-lg */
+            --input-radius: 0.375rem; /* Tailwind rounded-md */
+            --focus-ring-color: rgba(59, 130, 246, 0.5); 
+            --toolbar-width: 70px; /*toolbar width*/
+        }
+
+        body {
+            font-family: var(--font-sans);
+            margin: 0;
+            overflow: hidden;
+            background-color: var(--primary-bg);
+            color: var(--text-primary);
+            line-height: 1.5;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        #top-menu-bar {
+            height: 48px; 
+            background-color: var(--top-bar-bg);
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            padding: 0 1rem; 
+            border-bottom: 1px solid var(--border-color); 
+            width: 100%;
+            box-sizing: border-box;
+            flex-shrink: 0;
+            z-index: 100; 
+        }
+        #app-title {
+            font-weight: 600;
+            font-size: 1.1rem;
+            margin-right: auto; 
+        }
+        .menu-container {
+            position: relative;
+            display: inline-block;
+        }
+        .menu-button {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            padding: 0.5rem 0.75rem;
+            cursor: pointer;
+            font-size: 0.875rem;
+            border-radius: var(--input-radius);
+            transition: background-color 0.2s, color 0.2s;
+        }
+        .menu-button:hover, .menu-button.active {
+            background-color: var(--surface-bg);
+            color: var(--text-primary);
+        }
+        .dropdown-menu {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            background-color: var(--menu-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--default-radius);
+            min-width: 200px; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            z-index: 101; 
+            padding: 0.5rem 0;
+        }
+        .dropdown-menu.show {
+            display: block;
+        }
+        .menu-item, .menu-separator {
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            width: 100%;
+            text-align: left;
+            padding: 0.6rem 1rem;
+            font-size: 0.875rem;
+            color: var(--text-primary);
+            background: none;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .menu-item .shortcut { 
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+        }
+        .menu-item:hover {
+            background-color: var(--menu-item-hover-bg);
+        }
+        .menu-item.disabled {
+            color: var(--text-placeholder);
+            cursor: not-allowed;
+        }
+        .menu-item.disabled .shortcut {
+            color: var(--text-placeholder);
+        }
+        .menu-item.disabled:hover {
+            background-color: transparent;
+        }
+        .menu-separator {
+            height: 1px;
+            background-color: var(--border-color);
+            margin: 0.5rem 0;
+            padding: 0;
+        }
+
+
+        #editor-container {
+            display: flex;
+            flex-grow: 1;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        #canvas-container {
+            flex-grow: 1;
+            position: relative; /* For marquee overlay */
+            background-color: var(--secondary-bg);
+            display: flex; 
+            justify-content: center;
+            align-items: center;
+            overflow: hidden; 
+            cursor: default; /* Default cursor for canvas */
+        }
+        #canvas-container.crosshair-cursor {
+            cursor: crosshair;
+        }
+         #canvas-container.grabbing-cursor {
+            cursor: grabbing;
+        }
+
+
+        #marquee-select-box { /* For marquee selection visual */
+            position: absolute;
+            border: 1px dashed var(--marquee-border-color);
+            background-color: rgba(0, 255, 255, 0.1);
+            pointer-events: none; 
+            display: none; 
+            z-index: 50; 
+        }
+        
+        #toolbar {
+            width: var(--toolbar-width); 
+            flex-shrink: 0; 
+            background-color: var(--toolbar-bg);
+            padding: 0.75rem; 
+            border-left: 1px solid var(--border-color);
+            overflow-y: auto; 
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem; 
+        }
+
+        canvas {
+            display: block; 
+            max-width: 100%; 
+            max-height: 100%;
+        }
+
+        .tool-button { 
+            background-color: transparent; 
+            color: var(--text-secondary);
+            border: 1px solid transparent;  
+            padding: 0.6rem; 
+            margin-bottom: 0.25rem; 
+            border-radius: var(--input-radius); 
+            cursor: pointer;
+            width: 100%;
+            display: flex;  
+            align-items: center;  
+            justify-content: center; 
+            transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+            aspect-ratio: 1 / 1; 
+        }
+        .tool-button svg {
+            width: 1.5em; 
+            height: 1.5em;
+            stroke-width: 2;
+        }
+
+        .tool-button:hover {
+            background-color: var(--surface-bg);  
+            color: var(--text-primary);
+        }
+        
+        .tool-button:focus-visible {  
+            outline: none;
+            box-shadow: 0 0 0 2px var(--focus-ring-color) inset; 
+            border-color: var(--accent-color);
+        }
+
+        .tool-button.active {
+            background-color: var(--accent-color);
+            color: var(--accent-text-color);
+        }
+        .tool-button.active:hover {
+            background-color: var(--accent-hover-color);
+        }
+        
+        .toolbar-control-group {
+            padding: 0.5rem 0;
+            border-top: 1px solid var(--subtle-border-color);
+            margin-top: 0.5rem;
+        }
+        .toolbar-control-group:first-child {
+            border-top: none;
+            margin-top: 0;
+        }
+        .toolbar-control-group .panel-title { 
+            font-size: 0.6rem;
+            padding: 0 0.25rem 0.5rem 0.25rem;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+
+        label { 
+            display: block;
+            margin-bottom: 0.375rem;  
+            font-size: 0.875rem;  
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        input[type="number"] {  
+            width: 100%;
+            padding: 0.5rem 0.6rem;  
+            border-radius: var(--input-radius);
+            border: 1px solid var(--border-color);
+            background-color: var(--primary-bg);  
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;  
+            transition: border-color 0.2s, box-shadow 0.2s;
+            box-sizing: border-box;  
+            font-size: 0.875rem;
+        }
+        input[type="number"]:focus {
+            outline: none;
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 2px var(--focus-ring-color);
+        }
+
+        #message-box {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%) translateY(120%);
+            background-color: var(--surface-bg);  
+            color: var(--text-primary);
+            padding: 0.75rem 1.5rem;
+            border-radius: var(--default-radius);
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.3s ease-out, transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);   
+            pointer-events: none;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.25);   
+            font-weight: 500;
+            min-width: 180px;  
+            text-align: center;
+            border: 1px solid var(--border-color);
+        }
+
+        #message-box.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0px);   
+        }
+
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background-color: rgba(17, 24, 39, 0.85);  
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease-in-out;
+            backdrop-filter: blur(5px);   
+            -webkit-backdrop-filter: blur(5px);
+        }
+
+        .modal-overlay.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-content {
+            background-color: var(--secondary-bg);
+            padding: 1.5rem 2rem;  
+            border-radius: var(--default-radius);   
+            width: 90%;
+            max-width: 400px;   
+            text-align: center;
+            color: var(--text-primary);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3), 0 5px 10px rgba(0,0,0,0.1);   
+            transform: scale(0.95) translateY(10px); 
+            transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.3s ease-in-out;
+            opacity: 0; 
+        }
+        .modal-overlay.show .modal-content {
+            transform: scale(1) translateY(0);
+            opacity: 1;
+        }
+
+        .modal-content h3 {
+            margin: 0 0 1rem 0;  
+            font-size: 1.25rem;   
+            font-weight: 600;
+        }
+        .modal-content p {
+            margin-bottom: 1.5rem;  
+            color: var(--text-secondary);
+            line-height: 1.6;
+            font-size: 0.9rem;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 0.75rem;   
+            justify-content: flex-end;  
+            margin-top: 1rem;  
+        }
+        .modal-buttons button {
+            padding: 0.5rem 1rem;  
+            border-radius: var(--input-radius);
+            border: 1px solid transparent;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 0.875rem;
+            transition: background-color 0.2s, border-color 0.2s, box-shadow 0.2s;
+        }
+        .modal-buttons button:focus-visible {
+            outline: none;
+            box-shadow: 0 0 0 2px var(--focus-ring-color);
+        }
+
+        #modal-confirm-btn, .modal-primary-btn {
+            background-color: var(--accent-color);
+            color: var(--accent-text-color);
+        }
+         #modal-confirm-btn:hover, .modal-primary-btn:hover {
+            background-color: var(--accent-hover-color);
+        }
+
+        #modal-cancel-btn, .modal-secondary-btn {
+            background-color: var(--surface-bg);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+        #modal-cancel-btn:hover, .modal-secondary-btn:hover {
+            background-color: var(--border-color);
+        }
+        
+        #status {
+            position: fixed;
+            bottom: 0.75rem;  
+            right: 0.75rem;   
+            background-color: var(--surface-bg);
+            color: var(--text-secondary);
+            padding: 0.4rem 0.8rem;  
+            border-radius: var(--input-radius);
+            font-size: 0.75rem;  
+            z-index: 100;  
+            border: 1px solid var(--border-color);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        #status .current-tool-accent {   
+            color: var(--accent-color);   
+            font-weight: 600;
+        }
+
+        /* Color Picker Styles */
+        #color-picker-btn {
+            width: 100%;
+            height: 38px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--input-radius);
+            cursor: pointer;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        #color-picker-btn:hover {
+            border-color: var(--accent-color);
+        }
+         #color-picker-btn:focus-visible {
+            outline: none;
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 2px var(--focus-ring-color);
+        }
+        #color-picker-modal .modal-content {
+            max-width: 280px;
+            padding: 1rem;
+        }
+        .color-picker-body {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        #sv-canvas-wrapper {
+            position: relative;
+            width: 100%;
+            height: 150px;
+        }
+        #color-sv-canvas {
+            width: 100%;
+            height: 100%;
+            border-radius: var(--input-radius);
+            cursor: crosshair;
+            border: 1px solid var(--border-color);
+        }
+        #color-picker-indicator {
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 0 0 1px black, inset 0 0 0 1px black;
+            pointer-events: none;
+            transform: translate(-7px, -7px);
+        }
+        .color-slider {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 12px;
+            border-radius: 6px;
+            background: #ddd;
+            outline: none;
+            opacity: 0.9;
+            transition: opacity .2s;
+            cursor: pointer;
+        }
+        .color-slider:hover {
+            opacity: 1;
+        }
+        .color-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #fff;
+            border: 2px solid var(--border-color);
+            cursor: pointer;
+            box-shadow: 0 0 2px rgba(0,0,0,0.3);
+        }
+        #hue-slider {
+            background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+        }
+
+
+        #toolbar::-webkit-scrollbar {
+            width: 6px; 
+        }
+        #toolbar::-webkit-scrollbar-track {
+            background: var(--primary-bg); 
+            border-radius: 10px;
+        }
+        #toolbar::-webkit-scrollbar-thumb {
+            background: var(--surface-bg); 
+            border-radius: 10px;
+            border: 1px solid var(--primary-bg); 
+        }
+        #toolbar::-webkit-scrollbar-thumb:hover {
+            background: var(--border-color);
+        }
+        /* ====== END STYLES ====== */
+    </style>
+</head>
+<body>
+    <div id="top-menu-bar">
+        <span id="app-title">Voxel Editor</span>
+        <div class="menu-container">
+            <button class="menu-button" id="file-menu-btn">File</button>
+            <div class="dropdown-menu" id="file-menu">
+                <button class="menu-item" id="import-json-btn">Import JSON...</button>
+                <div class="menu-separator"></div>
+                <button class="menu-item" id="export-stl-btn">Export STL</button>
+                <button class="menu-item" id="export-json-btn">Export JSON</button>
+            </div>
+        </div>
+        <div class="menu-container">
+            <button class="menu-button" id="edit-menu-btn">Edit</button>
+            <div class="dropdown-menu" id="edit-menu">
+                <button class="menu-item" id="undo-btn-menu"><span>Undo</span><span class="shortcut">Ctrl+Z</span></button>
+                <button class="menu-item" id="redo-btn-menu"><span>Redo</span><span class="shortcut">Ctrl+Y</span></button>
+                <div class="menu-separator"></div>
+                <button class="menu-item" id="copy-btn-menu"><span>Copy</span><span class="shortcut">Ctrl+C</span></button>
+                <button class="menu-item" id="paste-btn-menu"><span>Paste</span><span class="shortcut">Ctrl+V</span></button>
+                <div class="menu-separator"></div>
+                <button class="menu-item" id="deselect-all-btn-menu"><span>Deselect All</span><span class="shortcut">Esc</span></button>
+                <div class="menu-separator"></div>
+                <button class="menu-item" id="clear-all-btn-menu">Clear Scene</button>
+            </div>
+        </div>
+        <div class="menu-container">
+            <button class="menu-button" id="view-menu-btn">View</button>
+            <div class="dropdown-menu" id="view-menu">
+                <button class="menu-item" id="toggle-grid-btn-menu"><span>Toggle Grid</span><span class="shortcut">G</span></button>
+                <button class="menu-item" id="toggle-grid-style-btn-menu">Toggle Grid Contrast</button>
+                <div class="menu-separator"></div>
+                <button class="menu-item" id="toggle-camera-btn-menu"><span>Toggle Camera</span><span class="shortcut">P</span></button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="editor-container">
+        <div id="canvas-container">
+            <div id="marquee-select-box"></div> </div>
+        <div id="toolbar">
+            <button id="add-voxel-tool" class="tool-button active" title="Add Voxel (A)">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+            </button>
+            <button id="select-tool" class="tool-button" title="Select Voxel (S)">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke-dasharray="4 2"/>
+                </svg>
+            </button>
+            <button id="delete-voxel-tool" class="tool-button" title="Delete Voxel (D)">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+            </button>
+            <button id="paint-bucket-tool" class="tool-button" title="Paint Bucket (B)">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.79.79 2.05.79 2.83 0L19 11Z"/>
+                    <path d="m5 2 6.5 6.5"/>
+                    <path d="M13.5 11.5 22 3"/>
+                </svg>
+            </button>
+            <button id="eyedropper-tool" class="tool-button" title="Eyedropper (I)">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/></svg>
+            </button>
+            
+            <div class="toolbar-control-group">
+                <h3 class="panel-title">COLOR (C)</h3>
+                 <button id="color-picker-btn" title="Open Color Picker (C)"></button>
+            </div>
+            <div class="toolbar-control-group">
+                <h3 class="panel-title">GRID</h3>
+                <input type="number" id="grid-size" value="16" min="8" max="128" step="1" title="Grid Size (8-128)"/>
+            </div>
+        </div>
+    </div>
+
+    <div id="status"></div>
+    <div id="message-box"></div>
+
+    <div id="custom-modal" class="modal-overlay">
+        <div class="modal-content">
+            <h3 id="modal-title">Confirmation</h3>
+            <p id="modal-message">Are you sure?</p>
+            <div class="modal-buttons"> 
+                <button id="modal-cancel-btn" class="modal-secondary-btn">Cancel</button> 
+                <button id="modal-confirm-btn" class="modal-primary-btn">Confirm</button> 
+            </div>
+        </div>
+    </div>
+    
+    <div id="color-picker-modal" class="modal-overlay">
+        <div class="modal-content">
+            <h3 id="modal-title">Select Color</h3>
+            <div class="color-picker-body">
+                <div id="sv-canvas-wrapper">
+                    <canvas id="color-sv-canvas"></canvas>
+                    <div id="color-picker-indicator"></div>
+                </div>
+                <input type="range" min="0" max="360" value="225" class="color-slider" id="hue-slider">
+            </div>
+            <div class="modal-buttons">
+                <button id="color-picker-cancel-btn" class="modal-secondary-btn">Cancel</button>
+                <button id="color-picker-ok-btn" class="modal-primary-btn">OK</button>
+            </div>
+        </div>
+    </div>
+    
+    <input type="file" id="file-import-input" accept=".json" style="display: none;" />
+
+
+    <script type="module">
+        import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+        /* ───────── CONFIG ───────── */
+        const VOXEL_SIZE = 1;
+        const MAX_UNDO_HISTORY = 200;
+        const THROTTLE_MS = 16; 
+        const DEFAULT_GRID_SIZE = 16;
+        const DEFAULT_COLOR_HEX = 0x2563EB; 
+        const SELECTION_EMISSIVE_COLOR = 0x00ffff; 
+        const PREVIEW_VOXEL_OPACITY = 0.4;
+
+
+        /* ───────── RUNTIME STATE ───────── */
+        let scene, camera, renderer, controls;
+        let perspectiveCamera, orthographicCamera;
+        let voxels = {}; 
+        let gridHelper, planeMesh, rollOverMesh;
+        
+        let currentTool = "add"; 
+        let selectedColor = DEFAULT_COLOR_HEX;
+        let gridSize = DEFAULT_GRID_SIZE;
+        let showGrid = true;
+        let isGridDark = false; // Default to high contrast (lighter grid lines)
+
+        const undoStack = [];
+        const redoStack = [];
+
+        let selectedVoxels = new Set(); 
+        let clipboard = null; 
+        let originalMaterials = new Map(); 
+
+        // Marquee selection state
+        let isMarqueeSelecting = false;
+        let marqueeStartPoint = new THREE.Vector2();
+        let marqueeEndPoint = new THREE.Vector2();
+        const marqueeBoxElement = document.getElementById('marquee-select-box');
+
+        // Move selection state
+        let isMovingSelection = false;
+        let moveSelectionOriginalPositions = new Map();
+        let moveSelectionStartPoint = new THREE.Vector3();
+
+
+        // Visual paste state
+        let isPastingFromMouse = false;
+        let pastePreviewGroup = null;
+        
+        // Color Picker State
+        let colorPickerOpen = false;
+        let initialColorPickerColor = 0;
+        let colorPickerHSL = { h: 0, s: 0, l: 0 };
+
+
+        /* ───────── DOM ELEMENTS ───────── */
+        const $ = (selector) => document.getElementById(selector);
+        const canvasContainer = $("canvas-container");
+        const statusBox = $("status");
+        const messageBox = $("message-box");
+        
+        const gridSizeInput = $("grid-size");
+        const addVoxelToolButton = $("add-voxel-tool"); 
+        const selectToolButton = $("select-tool"); 
+        const deleteVoxelToolButton = $("delete-voxel-tool");
+        const paintBucketToolButton = $("paint-bucket-tool");
+        const eyedropperToolButton = $("eyedropper-tool");
+        
+        const fileMenuBtn = $("file-menu-btn");
+        const editMenuBtn = $("edit-menu-btn");
+        const viewMenuBtn = $("view-menu-btn");
+        const fileMenu = $("file-menu");
+        const editMenu = $("edit-menu");
+        const viewMenu = $("view-menu");
+
+        const importJsonBtn = $("import-json-btn");
+        const exportStlBtn = $("export-stl-btn");
+        const exportJsonBtn = $("export-json-btn");
+        const fileImportInput = $("file-import-input");
+
+        const undoBtnMenu = $("undo-btn-menu");
+        const redoBtnMenu = $("redo-btn-menu");
+        const copyBtnMenu = $("copy-btn-menu"); 
+        const pasteBtnMenu = $("paste-btn-menu"); 
+        const deselectAllBtnMenu = $("deselect-all-btn-menu"); 
+        const clearAllBtnMenu = $("clear-all-btn-menu");
+
+        const toggleGridBtnMenu = $("toggle-grid-btn-menu");
+        const toggleGridStyleBtnMenu = $("toggle-grid-style-btn-menu");
+        const toggleCameraBtnMenu = $("toggle-camera-btn-menu");
+
+        const customModal = $("custom-modal");
+        const modalTitle = $("modal-title");
+        const modalMessage = $("modal-message");
+        const modalConfirmBtn = $("modal-confirm-btn");
+        const modalCancelBtn = $("modal-cancel-btn");
+        let confirmCallback = null;
+        
+        // Color Picker Elements
+        const colorPickerBtn = $('color-picker-btn');
+        const colorPickerModal = $('color-picker-modal');
+        const svCanvas = $('color-sv-canvas');
+        const hueSlider = $('hue-slider');
+        const colorIndicator = $('color-picker-indicator');
+        const colorPickerOkBtn = $('color-picker-ok-btn');
+        const colorPickerCancelBtn = $('color-picker-cancel-btn');
+        const svCanvasContext = svCanvas.getContext('2d');
+
+
+        /* ───────── MENU HANDLING ───────── */
+        function setupMenus() {
+            const menus = [
+                { btn: fileMenuBtn, menu: fileMenu },
+                { btn: editMenuBtn, menu: editMenu },
+                { btn: viewMenuBtn, menu: viewMenu }
+            ];
+
+            menus.forEach(item => {
+                item.btn.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    menus.forEach(other => {
+                        if (other.menu !== item.menu) {
+                            other.menu.classList.remove('show');
+                            other.btn.classList.remove('active');
+                        }
+                    });
+                    item.menu.classList.toggle('show');
+                    item.btn.classList.toggle('active');
+                });
+            });
+
+            window.addEventListener('click', () => {
+                menus.forEach(item => {
+                    item.menu.classList.remove('show');
+                    item.btn.classList.remove('active');
+                });
+            });
+        }
+
+
+        /* ───────── UTILITY FUNCTIONS ───────── */
+        const throttle = (func, delay) => {
+            let lastCall = 0;
+            return (...args) => {
+                const now = new Date().getTime();
+                if (now - lastCall < delay) return;
+                lastCall = now;
+                return func(...args);
+            };
+        };
+
+        const showMessage = (message, duration = 3000) => {
+            messageBox.textContent = message;
+            messageBox.classList.add("show");
+            setTimeout(() => messageBox.classList.remove("show"), duration);
+        };
+
+        const updateStatus = () => {
+            let toolDisplayName = currentTool.charAt(0).toUpperCase() + currentTool.slice(1);
+            let toolHotkey = '';
+            if (currentTool === 'add') { toolHotkey = 'A'; toolDisplayName = 'Add';}
+            else if (currentTool === 'delete') { toolHotkey = 'D'; toolDisplayName = 'Delete'; }
+            else if (currentTool === 'paintbucket') { toolHotkey = 'B'; toolDisplayName = 'Paint'; } 
+            else if (currentTool === 'eyedropper') { toolHotkey = 'I'; toolDisplayName = 'Picker'; }
+            else if (currentTool === 'select') { toolHotkey = 'S'; toolDisplayName = 'Select'; }
+
+
+            const gridStatusText = `Grid: ${showGrid ? 'On' : 'Off'} (G)`;
+            const cameraStatusText = camera === perspectiveCamera ? 'Persp (P)' : 'Ortho (P)';
+            const selectionStatus = selectedVoxels.size > 0 ? ` | Selected: ${selectedVoxels.size}` : '';
+            const pasteStatus = isPastingFromMouse ? ' | Pasting...' : '';
+            statusBox.innerHTML = `<span class="current-tool-accent">${toolDisplayName} (${toolHotkey})</span> | ${gridStatusText} | ${cameraStatusText}${selectionStatus}${pasteStatus}`;
+        };
+        
+        const getVoxelKey = (worldPosition) => {
+            const ix = Math.floor(worldPosition.x / VOXEL_SIZE);
+            const iy = Math.floor(worldPosition.y / VOXEL_SIZE);
+            const iz = Math.floor(worldPosition.z / VOXEL_SIZE);
+            return `${ix}_${iy}_${iz}`;
+        };
+
+        const getPositionFromKey = (key) => {
+            const [ix, iy, iz] = key.split("_").map(Number);
+            return new THREE.Vector3(
+                ix * VOXEL_SIZE + VOXEL_SIZE / 2,
+                iy * VOXEL_SIZE + VOXEL_SIZE / 2,
+                iz * VOXEL_SIZE + VOXEL_SIZE / 2
+            );
+        };
+
+        /* ───────── LOCAL STORAGE ───────── */
+        const STORAGE_KEY_VOXELS = "voxelArtEditor_voxels_v11_colorPicker"; 
+        const STORAGE_KEY_GRIDSIZE = "voxelArtEditor_gridSize_v11_colorPicker";
+        const STORAGE_KEY_COLOR = "voxelArtEditor_color_v11_colorPicker";
+        const STORAGE_KEY_CAMERA = "voxelArtEditor_camera_v11_colorPicker";
+        const STORAGE_KEY_GRID_VISIBLE = "voxelArtEditor_gridVisible_v11_colorPicker";
+        const STORAGE_KEY_GRID_STYLE = "voxelArtEditor_gridStyle_v11_colorPicker";
+
+
+        const saveToStorage = () => {
+            try {
+                const serializableVoxels = Object.values(voxels).map(v => ({
+                    key: getVoxelKey(v.position), 
+                    color: v.color,
+                }));
+                localStorage.setItem(STORAGE_KEY_VOXELS, JSON.stringify(serializableVoxels));
+                localStorage.setItem(STORAGE_KEY_GRIDSIZE, gridSize.toString());
+                localStorage.setItem(STORAGE_KEY_COLOR, selectedColor.toString(16));
+                localStorage.setItem(STORAGE_KEY_CAMERA, camera === perspectiveCamera ? 'perspective' : 'orthographic');
+                localStorage.setItem(STORAGE_KEY_GRID_VISIBLE, showGrid.toString());
+                localStorage.setItem(STORAGE_KEY_GRID_STYLE, isGridDark.toString());
+
+            } catch (e) {
+                console.error("Failed to save to localStorage:", e);
+                showMessage("Error saving data. Storage might be full.", 4000);
+            }
+        };
+
+        const loadFromStorage = () => {
+            try {
+                gridSize = parseInt(localStorage.getItem(STORAGE_KEY_GRIDSIZE), 10) || DEFAULT_GRID_SIZE;
+                gridSizeInput.value = gridSize;
+
+                const storedColor = localStorage.getItem(STORAGE_KEY_COLOR);
+                selectedColor = storedColor ? parseInt(storedColor, 16) : DEFAULT_COLOR_HEX;
+                updateColorSwatch(selectedColor);
+
+                showGrid = localStorage.getItem(STORAGE_KEY_GRID_VISIBLE) !== 'false'; 
+                
+                const storedGridStyle = localStorage.getItem(STORAGE_KEY_GRID_STYLE);
+                isGridDark = storedGridStyle === null ? false : storedGridStyle === 'true'; 
+
+
+            } catch (e) {
+                console.error("Failed to load from localStorage:", e);
+                showMessage("Error loading saved data. Starting fresh.", 4000);
+                localStorage.clear(); 
+                isGridDark = false; 
+            }
+        };
+        
+        /* ───────── THREE.JS INITIALIZATION ───────── */
+        function initThreeJS() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue('--secondary-bg').trim());
+
+            const aspect = canvasContainer.clientWidth / canvasContainer.clientHeight;
+            perspectiveCamera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
+            
+            const initialOrthoSize = gridSize * VOXEL_SIZE * 1.2; 
+            orthographicCamera = new THREE.OrthographicCamera(
+                -aspect * initialOrthoSize / 2, aspect * initialOrthoSize / 2,
+                initialOrthoSize / 2, -initialOrthoSize / 2,
+                0.1, 1000
+            );
+            
+            const storedCameraType = localStorage.getItem(STORAGE_KEY_CAMERA);
+            camera = (storedCameraType === 'orthographic' && orthographicCamera) ? orthographicCamera : perspectiveCamera;
+
+            renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true }); 
+            renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); 
+            canvasContainer.appendChild(renderer.domElement);
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.075; 
+            controls.screenSpacePanning = false; 
+
+            scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.7);
+            scene.add(directionalLight);
+
+            const rollOverGeo = new THREE.BoxGeometry(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
+            const rollOverMat = new THREE.MeshBasicMaterial({ color: selectedColor, opacity: 0.5, transparent: true });
+            rollOverMesh = new THREE.Mesh(rollOverGeo, rollOverMat);
+            scene.add(rollOverMesh);
+
+            const storedVoxels = localStorage.getItem(STORAGE_KEY_VOXELS);
+            if (storedVoxels) {
+                const parsedVoxels = JSON.parse(storedVoxels);
+                parsedVoxels.forEach(({ key, color }) => {
+                    addVoxelInternal(getPositionFromKey(key), color);
+                });
+                if (parsedVoxels.length > 0 && !localStorage.getItem("voxelArtEditor_initial_load_message_shown")) {
+                    showMessage(`Loaded ${parsedVoxels.length} voxels from previous session.`, 3000);
+                    localStorage.setItem("voxelArtEditor_initial_load_message_shown", "true");
+                }
+            }
+        }
+
+        function setupCameraAndControls() {
+            const worldGridSize = gridSize * VOXEL_SIZE;
+            const cameraTargetX = worldGridSize / 2;
+            const cameraTargetZ = worldGridSize / 2;
+            const cameraTargetY = worldGridSize / 5; 
+            const center = new THREE.Vector3(cameraTargetX, cameraTargetY, cameraTargetZ);
+            
+            const cameraDistanceFactor = 1.5; 
+            const cameraDistance = worldGridSize * cameraDistanceFactor;
+
+            const directionalLight = scene.children.find(c => c instanceof THREE.DirectionalLight);
+            if (directionalLight) {
+                directionalLight.position.set(worldGridSize * 0.75, worldGridSize * 1.5, worldGridSize * 0.5);
+            }
+
+            if (camera === perspectiveCamera) {
+                perspectiveCamera.position.set(cameraTargetX, cameraTargetY + worldGridSize * 0.4, cameraTargetZ + cameraDistance);
+                perspectiveCamera.lookAt(center);
+            } else { 
+                orthographicCamera.position.set(cameraTargetX, cameraTargetY + worldGridSize * 0.4, cameraTargetZ + cameraDistance);
+                orthographicCamera.lookAt(center);
+                updateOrthoCameraProjection(); 
+            }
+            
+            controls.target.copy(center);
+            controls.object = camera; 
+            controls.minDistance = VOXEL_SIZE * 2;
+            controls.maxDistance = worldGridSize * 5;
+            controls.update();
+        }
+        
+        function updateOrthoCameraProjection() {
+            if (!orthographicCamera || !renderer || !canvasContainer || gridSize <= 0) return; 
+            if (canvasContainer.clientWidth === 0 || canvasContainer.clientHeight === 0) return;
+            
+            const aspect = canvasContainer.clientWidth / canvasContainer.clientHeight;
+            const worldGridSize = gridSize * VOXEL_SIZE;
+            const orthoViewSize = worldGridSize * 1.2 / orthographicCamera.zoom; 
+
+            orthographicCamera.left = -aspect * orthoViewSize / 2;
+            orthographicCamera.right = aspect * orthoViewSize / 2;
+            orthographicCamera.top = orthoViewSize / 2;
+            orthographicCamera.bottom = -orthoViewSize / 2;
+            orthographicCamera.updateProjectionMatrix();
+        }
+
+
+        /* ───────── GRID AND PLANE ───────── */
+        function createGridAndPlane() {
+            if (gridHelper) scene.remove(gridHelper);
+            if (planeMesh) scene.remove(planeMesh);
+
+            const worldGridSize = gridSize * VOXEL_SIZE; 
+            const divisions = gridSize;
+            
+            const gridOffset = worldGridSize / 2;
+            gridHelper = new THREE.GridHelper(worldGridSize, divisions, 
+                new THREE.Color(isGridDark ? 0x444444 : 0xbbbbbb), 
+                new THREE.Color(isGridDark ? 0x222222 : 0x999999)
+            );
+            gridHelper.position.set(gridOffset, 0, gridOffset);
+            gridHelper.material.opacity = 0.6; 
+            gridHelper.material.transparent = true;
+            gridHelper.material.depthWrite = false; 
+            gridHelper.visible = showGrid;
+            scene.add(gridHelper);
+
+            const planeGeometry = new THREE.PlaneGeometry(worldGridSize, worldGridSize);
+            planeGeometry.rotateX(-Math.PI / 2); 
+            planeMesh = new THREE.Mesh(planeGeometry, new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide }));
+            planeMesh.position.set(gridOffset, 0, gridOffset); 
+            scene.add(planeMesh);
+        }
+        
+        /* ───────── VOXEL SELECTION ───────── */
+        function highlightVoxel(voxelKey, highlight = true) {
+            const voxelData = voxels[voxelKey];
+            if (!voxelData || !voxelData.mesh || !voxelData.mesh.material) return;
+
+            if (highlight) {
+                if (!originalMaterials.has(voxelKey)) {
+                    originalMaterials.set(voxelKey, voxelData.mesh.material.color.getHex());
+                }
+                voxelData.mesh.material.emissive.setHex(SELECTION_EMISSIVE_COLOR);
+                voxelData.mesh.material.emissiveIntensity = 0.5;
+            } else {
+                if (originalMaterials.has(voxelKey)) {
+                    voxelData.mesh.material.color.setHex(originalMaterials.get(voxelKey));
+                    originalMaterials.delete(voxelKey); 
+                }
+                voxelData.mesh.material.emissive.setHex(0x000000); 
+                voxelData.mesh.material.emissiveIntensity = 1;
+            }
+            voxelData.mesh.material.needsUpdate = true;
+        }
+
+        function deselectAllVoxels(recordUndoState = false) {
+            const deselectedKeys = Array.from(selectedVoxels);
+            if (deselectedKeys.length === 0) return; 
+
+            if (recordUndoState) {
+                recordUndo({ type: 'deselect', keys: deselectedKeys });
+            }
+
+            selectedVoxels.forEach(key => highlightVoxel(key, false));
+            selectedVoxels.clear();
+            originalMaterials.clear(); 
+            
+            updateStatus();
+            render();
+        }
+
+
+        /* ───────── VOXEL OPERATIONS ───────── */
+        function addVoxelInternal(position, color) {
+            const key = getVoxelKey(position);
+            if (voxels[key]) return false; 
+
+            const geometry = new THREE.BoxGeometry(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
+            const material = new THREE.MeshLambertMaterial({ color: color });
+            const voxelMesh = new THREE.Mesh(geometry, material);
+            voxelMesh.position.copy(position); 
+
+            voxels[key] = { mesh: voxelMesh, color: color, position: position.clone() };
+            scene.add(voxelMesh);
+            return true;
+        }
+        
+        function addVoxel(position, color, fromUndoRedo = false) {
+            const ix = Math.floor(position.x / VOXEL_SIZE);
+            const iy = Math.floor(position.y / VOXEL_SIZE); 
+            const iz = Math.floor(position.z / VOXEL_SIZE);
+
+            if (ix < 0 || ix >= gridSize || iy < 0 || iy >= gridSize || iz < 0 || iz >= gridSize) {
+                showMessage("Voxel is outside the grid boundaries.");
+                return false;
+            }
+            
+            if (addVoxelInternal(position, color)) {
+                if (!fromUndoRedo) {
+                    recordUndo({ type: 'add', key: getVoxelKey(position), position: position.clone(), color });
+                    saveToStorage();
+                }
+                render();
+                return true;
+            }
+            return false;
+        }
+
+        function deleteVoxelInternal(position) {
+            const key = getVoxelKey(position); 
+            const voxelData = voxels[key];
+            if (!voxelData) return null; 
+
+            if (selectedVoxels.has(key)) {
+                selectedVoxels.delete(key);
+                originalMaterials.delete(key); 
+            }
+
+            scene.remove(voxelData.mesh);
+            voxelData.mesh.geometry.dispose();
+            voxelData.mesh.material.dispose();
+            delete voxels[key];
+            return voxelData; 
+        }
+
+        function deleteVoxel(position, fromUndoRedo = false) {
+            const deletedVoxelData = deleteVoxelInternal(position);
+            if (deletedVoxelData) {
+                if (!fromUndoRedo) {
+                    recordUndo({ type: 'delete', key: getVoxelKey(position), position: deletedVoxelData.position, color: deletedVoxelData.color });
+                    saveToStorage();
+                }
+                updateStatus(); 
+                render();
+                return true;
+            }
+            return false;
+        }
+
+        function execDeleteSelection() {
+            if (selectedVoxels.size === 0) return;
+
+            const deletedVoxelActions = [];
+            selectedVoxels.forEach(key => {
+                const voxelData = voxels[key];
+                if (voxelData) {
+                    deletedVoxelActions.push({
+                        key: key,
+                        position: voxelData.position.clone(),
+                        color: voxelData.color
+                    });
+                    deleteVoxelInternal(voxelData.position);
+                }
+            });
+
+            if (deletedVoxelActions.length > 0) {
+                recordUndo({ type: 'deleteMultiple', voxels: deletedVoxelActions });
+                showMessage(`Deleted ${deletedVoxelActions.length} voxel(s).`);
+                deselectAllVoxels();
+                saveToStorage();
+                updateStatus();
+                render();
+            }
+        }
+        
+        function applyPaintBucket(startKey, newColor) {
+            const changedVoxelsData = [];
+            if (selectedVoxels.size > 0) { // Paint selected voxels
+                selectedVoxels.forEach(key => {
+                    const voxel = voxels[key];
+                    if (voxel && voxel.color !== newColor) {
+                        changedVoxelsData.push({ key: key, oldColor: voxel.color, newColor: newColor, position: voxel.position.clone() });
+                        voxel.color = newColor;
+                        voxel.mesh.material.color.setHex(newColor);
+                        originalMaterials.set(key, newColor); // Update original material if selected
+                    }
+                });
+                if (changedVoxelsData.length > 0) {
+                    showMessage(`Painted ${changedVoxelsData.length} selected voxel(s).`);
+                } else {
+                    showMessage(`Selected voxel(s) already have this color.`);
+                    return; // No actual change
+                }
+
+            } else { // Flood fill if nothing selected
+                const startVoxel = voxels[startKey];
+                if (!startVoxel || startVoxel.color === newColor) {
+                    showMessage(startVoxel ? `Voxel already has this color.` : `Cannot paint empty space.`);
+                    return;
+                }
+
+                const targetColor = startVoxel.color;
+                const queue = [startKey];
+                const visited = new Set();
+
+                while (queue.length > 0) {
+                    const currentKey = queue.shift();
+                    if (visited.has(currentKey)) continue;
+                    visited.add(currentKey);
+
+                    const voxel = voxels[currentKey];
+                    if (!voxel || voxel.color !== targetColor) continue;
+
+                    const [cx, cy, cz] = currentKey.split("_").map(Number); 
+                    if (cx < 0 || cx >= gridSize || cy < 0 || cy >= gridSize || cz < 0 || cz >= gridSize) continue;
+
+                    changedVoxelsData.push({ key: currentKey, oldColor: voxel.color, newColor: newColor, position: voxel.position.clone() });
+                    voxel.color = newColor;
+                    voxel.mesh.material.color.setHex(newColor);
+                    if (selectedVoxels.has(currentKey)) originalMaterials.set(currentKey, newColor);
+
+
+                    const neighborsIndices = [
+                        `${cx+1}_${cy}_${cz}`, `${cx-1}_${cy}_${cz}`,
+                        `${cx}_${cy+1}_${cz}`, `${cx}_${cy-1}_${cz}`,
+                        `${cx}_${cy}_${cz+1}`, `${cx}_${cy}_${cz-1}`,
+                    ];
+
+                    for (const neighborKey of neighborsIndices) {
+                        if (voxels[neighborKey] && voxels[neighborKey].color === targetColor && !visited.has(neighborKey)) {
+                            queue.push(neighborKey);
+                        }
+                    }
+                }
+                if (changedVoxelsData.length > 0) {
+                    showMessage(`Flood filled ${changedVoxelsData.length} voxel(s).`);
+                } else {
+                    return; // No actual change
+                }
+            }
+
+
+            if (changedVoxelsData.length > 0) {
+                recordUndo({ type: 'paintbucket', changes: changedVoxelsData });
+                saveToStorage();
+                render();
+            }
+        }
+
+        /* ───────── UNDO/REDO ───────── */
+        function recordUndo(action) {
+            if (undoStack.length >= MAX_UNDO_HISTORY) {
+                undoStack.shift(); 
+            }
+            undoStack.push(action);
+            redoStack.length = 0; 
+            updateUndoRedoButtons();
+        }
+
+        function performUndo() {
+            if (undoStack.length === 0) {
+                showMessage("Nothing to undo.");
+                return;
+            }
+            const currentAction = undoStack.pop();
+            redoStack.push(currentAction);
+
+            switch (currentAction.type) {
+                case 'add':
+                    deleteVoxelInternal(currentAction.position);
+                    break;
+                case 'delete':
+                    addVoxelInternal(currentAction.position, currentAction.color);
+                    break;
+                case 'deleteMultiple':
+                    currentAction.voxels.forEach(v => addVoxelInternal(v.position, v.color));
+                    break;
+                case 'paintbucket':
+                    currentAction.changes.forEach(change => {
+                        if(voxels[change.key]) { 
+                            voxels[change.key].color = change.oldColor;
+                            voxels[change.key].mesh.material.color.setHex(change.oldColor);
+                            if (selectedVoxels.has(change.key)) originalMaterials.set(change.key, change.oldColor);
+                        }
+                    });
+                    break;
+                case 'clear':
+                    currentAction.voxels.forEach(v => addVoxelInternal(v.position, v.color));
+                    break;
+                case 'gridResize':
+                    Object.keys(voxels).forEach(key => deleteVoxelInternal(getPositionFromKey(key))); 
+                    currentAction.oldVoxels.forEach(v => addVoxelInternal(v.position, v.color)); 
+                    gridSize = currentAction.oldGridSize;
+                    gridSizeInput.value = gridSize;
+                    createGridAndPlane();
+                    setupCameraAndControls();
+                    showMessage(`Undo grid resize. Restored to ${gridSize}x${gridSize}.`);
+                    break;
+                case 'paste':
+                    currentAction.pastedActions.forEach(pasted => deleteVoxelInternal(pasted.position));
+                    deselectAllVoxels(); 
+                    currentAction.previousSelection.forEach(key => {
+                        if (voxels[key]) { 
+                            selectedVoxels.add(key);
+                            highlightVoxel(key, true);
+                        }
+                    });
+                    break;
+                case 'select':
+                case 'deselect':
+                case 'marqueeSelect':
+                    deselectAllVoxels();
+                    currentAction.previousSelection.forEach(key => {
+                        if (voxels[key]) {
+                            selectedVoxels.add(key);
+                            highlightVoxel(key, true);
+                        }
+                    });
+                    break;
+                 case 'moveSelection':
+                    deselectAllVoxels(); 
+                    currentAction.movedVoxels.forEach(moved => {
+                        const currentVoxelAtNewPos = voxels[moved.newKey];
+                        if(currentVoxelAtNewPos && currentVoxelAtNewPos.position.equals(moved.newPosition)) {
+                            deleteVoxelInternal(currentVoxelAtNewPos.position);
+                        }
+                        addVoxelInternal(moved.oldPosition, moved.color);
+                    });
+                    currentAction.previousSelection.forEach(key => { 
+                        if (voxels[key]) {
+                            selectedVoxels.add(key);
+                            highlightVoxel(key, true);
+                        }
+                    });
+                    break;
+            }
+            
+            updateUndoRedoButtons();
+            updateStatus();
+            saveToStorage(); 
+            render();
+        }
+
+        function performRedo() {
+            if (redoStack.length === 0) {
+                showMessage("Nothing to redo.");
+                return;
+            }
+            const action = redoStack.pop();
+            undoStack.push(action);
+
+            switch (action.type) {
+                case 'add':
+                    addVoxelInternal(action.position, action.color);
+                    break;
+                case 'delete':
+                    deleteVoxelInternal(action.position);
+                    break;
+                 case 'deleteMultiple':
+                    action.voxels.forEach(v => deleteVoxelInternal(v.position));
+                    break;
+                case 'paintbucket':
+                    action.changes.forEach(change => {
+                        if(voxels[change.key]) {
+                            voxels[change.key].color = change.newColor;
+                            voxels[change.key].mesh.material.color.setHex(change.newColor);
+                            if (selectedVoxels.has(change.key)) originalMaterials.set(change.key, change.newColor);
+                        }
+                    });
+                    break;
+                case 'clear':
+                    action.voxels.forEach(v => deleteVoxelInternal(v.position));
+                    break;
+                case 'gridResize':
+                    Object.keys(voxels).forEach(key => deleteVoxelInternal(getPositionFromKey(key)));
+                    gridSize = action.newGridSize; 
+                    gridSizeInput.value = gridSize;
+                    createGridAndPlane();
+                    setupCameraAndControls();
+                    showMessage(`Redo grid resize. Set to ${gridSize}x${gridSize}.`);
+                    break;
+                case 'paste':
+                    deselectAllVoxels(); 
+                    action.pastedActions.forEach(pasted => {
+                        if(addVoxelInternal(pasted.position, pasted.color)) {
+                            selectedVoxels.add(pasted.key); 
+                            highlightVoxel(pasted.key, true);
+                        }
+                    });
+                    break;
+                case 'select':
+                case 'deselect':
+                case 'marqueeSelect':
+                     deselectAllVoxels();
+                    action.newSelection.forEach(key => {
+                        if (voxels[key]) {
+                            selectedVoxels.add(key);
+                            highlightVoxel(key, true);
+                        }
+                    });
+                    break;
+                case 'moveSelection': 
+                    deselectAllVoxels();
+                    action.movedVoxels.forEach(moved => {
+                        const oldVoxel = voxels[moved.oldKey];
+                        if(oldVoxel && oldVoxel.position.equals(moved.oldPosition)) {
+                            deleteVoxelInternal(oldVoxel.position);
+                        }
+                        addVoxelInternal(moved.newPosition, moved.color);
+                    });
+                    action.newSelection.forEach(key => { 
+                        if (voxels[key]) {
+                            selectedVoxels.add(key);
+                            highlightVoxel(key, true);
+                        }
+                    });
+                    break;
+            }
+
+            updateUndoRedoButtons();
+            updateStatus();
+            saveToStorage(); 
+            render();
+        }
+        
+        function updateUndoRedoButtons() {
+            undoBtnMenu.classList.toggle('disabled', undoStack.length === 0);
+            redoBtnMenu.classList.toggle('disabled', redoStack.length === 0);
+            undoBtnMenu.disabled = undoStack.length === 0;
+            redoBtnMenu.disabled = redoStack.length === 0;
+
+            copyBtnMenu.classList.toggle('disabled', selectedVoxels.size === 0);
+            pasteBtnMenu.classList.toggle('disabled', clipboard === null);
+            copyBtnMenu.disabled = selectedVoxels.size === 0;
+            pasteBtnMenu.disabled = clipboard === null;
+            deselectAllBtnMenu.classList.toggle('disabled', selectedVoxels.size === 0);
+            deselectAllBtnMenu.disabled = selectedVoxels.size === 0;
+        }
+
+        /* ───────── UI INTERACTIONS & COLOR PICKER ───────── */
+
+        function updateColorSwatch(color) {
+            const colorHex = `#${color.toString(16).padStart(6, "0")}`;
+            colorPickerBtn.style.backgroundColor = colorHex;
+            selectedColor = color;
+             if (rollOverMesh && currentTool === 'add') {
+                rollOverMesh.material.color.setHex(selectedColor);
+             }
+            render();
+        }
+
+        function openColorPicker() {
+            if (colorPickerOpen) return;
+            colorPickerOpen = true;
+            initialColorPickerColor = selectedColor;
+            
+            const tempColor = new THREE.Color(selectedColor);
+            tempColor.getHSL(colorPickerHSL);
+
+            hueSlider.value = colorPickerHSL.h * 360;
+            
+            colorPickerModal.classList.add("show");
+
+            const rect = svCanvas.getBoundingClientRect();
+            svCanvas.width = rect.width;
+            svCanvas.height = rect.height;
+            
+            drawSVCanvas();
+            updateIndicatorPosition();
+        }
+
+        function closeColorPicker(applyChange) {
+            if (!colorPickerOpen) return;
+            colorPickerOpen = false;
+            if (applyChange) {
+                const newColor = new THREE.Color().setHSL(colorPickerHSL.h, colorPickerHSL.s, colorPickerHSL.l).getHex();
+                updateColorSwatch(newColor);
+                setTool('add');
+                saveToStorage();
+            } else {
+                updateColorSwatch(initialColorPickerColor);
+            }
+            colorPickerModal.classList.remove("show");
+        }
+
+        function drawSVCanvas() {
+            const width = svCanvas.width;
+            const height = svCanvas.height;
+            if (!svCanvasContext || width === 0 || height === 0) return;
+            svCanvasContext.clearRect(0, 0, width, height);
+
+            const hueColor = `hsl(${colorPickerHSL.h * 360}, 100%, 50%)`;
+            svCanvasContext.fillStyle = hueColor;
+            svCanvasContext.fillRect(0, 0, width, height);
+            
+            const whiteGradient = svCanvasContext.createLinearGradient(0, 0, width, 0);
+            whiteGradient.addColorStop(0, 'rgba(255,255,255,1)');
+            whiteGradient.addColorStop(1, 'rgba(255,255,255,0)');
+            svCanvasContext.fillStyle = whiteGradient;
+            svCanvasContext.fillRect(0, 0, width, height);
+
+            const blackGradient = svCanvasContext.createLinearGradient(0, 0, 0, height);
+            blackGradient.addColorStop(0, 'rgba(0,0,0,0)');
+            blackGradient.addColorStop(1, 'rgba(0,0,0,1)');
+            svCanvasContext.fillStyle = blackGradient;
+            svCanvasContext.fillRect(0, 0, width, height);
+        }
+        
+        function updateIndicatorPosition() {
+            const width = svCanvas.width;
+            const height = svCanvas.height;
+            if(width === 0 || height === 0) return;
+
+            const tempColor = new THREE.Color();
+            tempColor.setHSL(colorPickerHSL.h, colorPickerHSL.s, colorPickerHSL.l);
+            
+            // Convert HSL to HSV for correct positioning on a standard SV map
+            const l = colorPickerHSL.l;
+            const s = colorPickerHSL.s;
+            const v = l + s * Math.min(l, 1 - l);
+            const s_v = v === 0 ? 0 : 2 * (1 - l / v);
+
+            colorIndicator.style.left = `${s_v * width}px`;
+            colorIndicator.style.top = `${(1 - v) * height}px`;
+            colorIndicator.style.borderColor = v > 0.5 ? '#000' : '#fff';
+        }
+
+        function handleSVCanvasPick(event, isDragging) {
+            if (!isDragging && event.type !== 'mousedown') return;
+            const rect = svCanvas.getBoundingClientRect();
+            const x = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+            const y = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
+
+            // Picking from an HSV (Hue-Saturation-Value) style map
+            const s_v = x / rect.width;
+            const v = 1 - (y / rect.height);
+            
+            // Convert HSV to HSL for Three.js
+            const h = colorPickerHSL.h;
+            const l = v * (1 - s_v / 2);
+            const s_l = (l === 0 || l === 1) ? 0 : (v - l) / Math.min(l, 1 - l);
+            
+            colorPickerHSL.s = s_l;
+            colorPickerHSL.l = l;
+
+            const newColor = new THREE.Color().setHSL(h, s_l, l).getHex();
+            updateColorSwatch(newColor);
+            updateIndicatorPosition();
+        }
+
+        function setTool(toolName) {
+            const isSwitchingToNonSelectTool = ['add', 'eyedropper', 'delete'].includes(toolName);
+            const isTogglingSelect = toolName === 'select' && currentTool === 'select';
+
+            if ((isSwitchingToNonSelectTool || isTogglingSelect) && selectedVoxels.size > 0) {
+                execDeselectAll(true);
+            }
+
+            currentTool = toolName;
+            [addVoxelToolButton, selectToolButton, deleteVoxelToolButton, paintBucketToolButton, eyedropperToolButton] 
+                .forEach(btn => btn.classList.remove('active'));
+            
+            canvasContainer.classList.remove('grabbing-cursor'); 
+
+            if (toolName === 'add') addVoxelToolButton.classList.add('active');
+            else if (toolName === 'select') {
+                selectToolButton.classList.add('active');
+                canvasContainer.classList.add('crosshair-cursor'); 
+            } else {
+                canvasContainer.classList.remove('crosshair-cursor');
+                if (toolName === 'delete') deleteVoxelToolButton.classList.add('active');
+                else if (toolName === 'paintbucket') paintBucketToolButton.classList.add('active');
+                else if (toolName === 'eyedropper') eyedropperToolButton.classList.add('active');
+            }
+            
+            rollOverMesh.visible = (toolName === 'add' || toolName === 'delete' || toolName === 'select' || isPastingFromMouse); 
+            
+            if (isPastingFromMouse && toolName !== 'select' && toolName !== 'add') { 
+                cancelVisualPasteMode();
+            }
+
+            if (rollOverMesh.visible) {
+                if (toolName === "add") {
+                    rollOverMesh.material.color.setHex(selectedColor);
+                    rollOverMesh.material.opacity = 0.5;
+                } else if (toolName === "delete") {
+                    rollOverMesh.material.color.setHex(0xff0000); 
+                    rollOverMesh.material.opacity = 0.4;
+                } else if (toolName === "select") { 
+                    rollOverMesh.material.color.setHex(isPastingFromMouse ? 0x00aa00 : 0x00ff00); 
+                    rollOverMesh.material.opacity = 0.3;
+                }
+            }
+
+            updateStatus();
+            render();
+        }
+        
+        function handleGridSizeChange() {
+            const newSize = parseInt(gridSizeInput.value, 10);
+            if (isNaN(newSize) || newSize < 8 || newSize > 128) {
+                showMessage("Grid size must be between 8 and 128.");
+                gridSizeInput.value = gridSize; 
+                return;
+            }
+            if (newSize !== gridSize) {
+                showCustomConfirm("Resize Grid?", `Changing grid size to ${newSize}x${newSize} will clear the current scene and selection. Are you sure?`, () => {
+                    const oldVoxelsForUndo = Object.values(voxels).map(v => ({ position: v.position.clone(), color: v.color }));
+                    const oldGridSizeForUndo = gridSize;
+                    deselectAllVoxels(); 
+
+                    recordUndo({ type: 'gridResize', oldVoxels: oldVoxelsForUndo, oldGridSize: oldGridSizeForUndo, newGridSize: newSize });
+                    
+                    Object.keys(voxels).forEach(key => deleteVoxelInternal(getPositionFromKey(key)));
+                    
+                    gridSize = newSize;
+
+                    createGridAndPlane();
+                    setupCameraAndControls(); 
+                    saveToStorage(); 
+                    showMessage(`Grid resized to ${gridSize}x${gridSize}. Scene cleared.`);
+                    updateStatus();
+                    render();
+                }, () => {
+                    gridSizeInput.value = gridSize; 
+                });
+            }
+        }
+
+        function execToggleCameraView() {
+            if (camera === perspectiveCamera) {
+                camera = orthographicCamera;
+            } else {
+                camera = perspectiveCamera;
+            }
+            setupCameraAndControls(); 
+            updateStatus();
+            saveToStorage();
+            render();
+        }
+
+        function execClearAllVoxels() {
+            if (Object.keys(voxels).length === 0) {
+                showMessage("Scene is already empty.");
+                return;
+            }
+            showCustomConfirm("Clear Scene?", "Are you sure you want to delete all voxels? This action can be undone.", () => {
+                const oldVoxelsForUndo = Object.values(voxels).map(v => ({ position: v.position.clone(), color: v.color }));
+                deselectAllVoxels(); 
+                recordUndo({ type: 'clear', voxels: oldVoxelsForUndo });
+
+                Object.keys(voxels).forEach(key => deleteVoxelInternal(getPositionFromKey(key)));
+                saveToStorage();
+                showMessage("Scene cleared.");
+                updateStatus(); 
+                render();
+            });
+        }
+        
+        function execToggleGrid() {
+            showGrid = !showGrid;
+            if (gridHelper) gridHelper.visible = showGrid;
+            updateStatus();
+            saveToStorage();
+            render();
+        }
+
+        function execToggleGridStyle() {
+            isGridDark = !isGridDark;
+            createGridAndPlane(); 
+            updateStatus();
+            saveToStorage();
+            render();
+        }
+
+        /* -------- SELECT, COPY, PASTE, MOVE -------- */
+        function execCopySelection() {
+            if (selectedVoxels.size === 0) {
+                showMessage("Nothing selected to copy. Select voxels and press Ctrl+C.");
+                updateUndoRedoButtons();
+                return;
+            }
+
+            let minX = Infinity, minY = Infinity, minZ = Infinity;
+            selectedVoxels.forEach(key => {
+                const pos = getPositionFromKey(key);
+                minX = Math.min(minX, pos.x);
+                minY = Math.min(minY, pos.y);
+                minZ = Math.min(minZ, pos.z);
+            });
+            
+            const selectionAnchor = new THREE.Vector3(
+                Math.floor(minX / VOXEL_SIZE) * VOXEL_SIZE,
+                Math.floor(minY / VOXEL_SIZE) * VOXEL_SIZE,
+                Math.floor(minZ / VOXEL_SIZE) * VOXEL_SIZE
+            );
+
+            clipboard = {
+                voxelsData: [],
+                originalAnchor: selectionAnchor.clone() 
+            };
+
+            selectedVoxels.forEach(key => {
+                const voxelData = voxels[key];
+                if (voxelData) {
+                    const relativePos = voxelData.position.clone().sub(selectionAnchor);
+                    clipboard.voxelsData.push({ offset: relativePos, color: voxelData.color });
+                }
+            });
+
+            isPastingFromMouse = true; 
+            createPastePreview();
+            showMessage(`${selectedVoxels.size} voxel(s) copied. Click to paste.`);
+            updateUndoRedoButtons();
+            updateStatus();
+        }
+        
+        function createPastePreview() {
+            if (pastePreviewGroup) {
+                scene.remove(pastePreviewGroup);
+                pastePreviewGroup.children.forEach(child => {
+                    child.geometry.dispose();
+                    child.material.dispose();
+                });
+            }
+            if (!clipboard || !isPastingFromMouse) return;
+
+            pastePreviewGroup = new THREE.Group();
+            clipboard.voxelsData.forEach(data => {
+                const geometry = new THREE.BoxGeometry(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
+                const material = new THREE.MeshBasicMaterial({ 
+                    color: data.color, 
+                    opacity: PREVIEW_VOXEL_OPACITY, 
+                    transparent: true,
+                    depthWrite: false 
+                });
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.position.copy(data.offset); 
+                pastePreviewGroup.add(mesh);
+            });
+            scene.add(pastePreviewGroup);
+            updatePastePreviewPosition(); 
+        }
+
+        function updatePastePreviewPosition() {
+            if (pastePreviewGroup && rollOverMesh.visible) {
+                const pasteAnchorX = Math.floor(rollOverMesh.position.x / VOXEL_SIZE) * VOXEL_SIZE;
+                const pasteAnchorY = Math.floor(rollOverMesh.position.y / VOXEL_SIZE) * VOXEL_SIZE;
+                const pasteAnchorZ = Math.floor(rollOverMesh.position.z / VOXEL_SIZE) * VOXEL_SIZE;
+                pastePreviewGroup.position.set(pasteAnchorX, pasteAnchorY, pasteAnchorZ);
+                pastePreviewGroup.visible = true;
+                render();
+            } else if (pastePreviewGroup) {
+                pastePreviewGroup.visible = false; 
+                render();
+            }
+        }
+        
+        function cancelVisualPasteMode() {
+            isPastingFromMouse = false;
+            if (pastePreviewGroup) {
+                scene.remove(pastePreviewGroup);
+                pastePreviewGroup.children.forEach(child => {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) child.material.dispose();
+                });
+                pastePreviewGroup = null;
+            }
+            updateStatus();
+            render();
+        }
+
+
+        function execPasteSelection() {
+            if (!clipboard || clipboard.voxelsData.length === 0) {
+                showMessage("Clipboard is empty.");
+                updateUndoRedoButtons();
+                return;
+            }
+            
+            let pasteBasePosition; 
+            
+            if (rollOverMesh && rollOverMesh.visible) {
+                pasteBasePosition = new THREE.Vector3(
+                    Math.floor(rollOverMesh.position.x / VOXEL_SIZE) * VOXEL_SIZE,
+                    Math.floor(rollOverMesh.position.y / VOXEL_SIZE) * VOXEL_SIZE,
+                    Math.floor(rollOverMesh.position.z / VOXEL_SIZE) * VOXEL_SIZE
+                    );
+            } else {
+                pasteBasePosition = new THREE.Vector3(0, 0, 0); 
+                showMessage("Pasting at grid origin. Move cursor over grid for precise paste.", 3500);
+            }
+
+            const pastedActions = [];
+            let actuallyPastedCount = 0;
+            const previousSelection = Array.from(selectedVoxels); 
+            deselectAllVoxels(); 
+
+            clipboard.voxelsData.forEach(clipVoxel => {
+                const targetCenterPos = pasteBasePosition.clone().add(clipVoxel.offset);
+                
+                const ix = Math.floor(targetCenterPos.x / VOXEL_SIZE);
+                const iy = Math.floor(targetCenterPos.y / VOXEL_SIZE);
+                const iz = Math.floor(targetCenterPos.z / VOXEL_SIZE);
+
+                if (ix >= 0 && ix < gridSize && iy >= 0 && iy < gridSize && iz >= 0 && iz < gridSize) {
+                    const existingKey = getVoxelKey(targetCenterPos);
+                    if (!voxels[existingKey]) { 
+                        if (addVoxelInternal(targetCenterPos, clipVoxel.color)) {
+                            pastedActions.push({ type: 'add', key: getVoxelKey(targetCenterPos), position: targetCenterPos.clone(), color: clipVoxel.color });
+                            actuallyPastedCount++;
+                            selectedVoxels.add(getVoxelKey(targetCenterPos)); 
+                            highlightVoxel(getVoxelKey(targetCenterPos), true);
+                        }
+                    }
+                }
+            });
+
+            if (pastedActions.length > 0) {
+                recordUndo({ type: 'paste', pastedActions: pastedActions, previousSelection: previousSelection }); 
+                showMessage(`Pasted ${actuallyPastedCount} voxel(s).`);
+                saveToStorage();
+            } else {
+                showMessage("Could not paste voxels (out of bounds or cells occupied).");
+                previousSelection.forEach(key => {
+                    if (voxels[key]) {
+                        selectedVoxels.add(key);
+                        highlightVoxel(key, true);
+                    }
+                });
+
+            }
+            cancelVisualPasteMode(); 
+            updateUndoRedoButtons();
+            updateStatus();
+            render();
+        }
+
+        function execDeselectAll(recordUndoState = true) {
+            if (selectedVoxels.size === 0) return;
+            if(recordUndoState) {
+                const deselectedKeys = Array.from(selectedVoxels);
+                recordUndo({ type: 'deselect', keys: deselectedKeys });
+            }
+            selectedVoxels.forEach(key => highlightVoxel(key, false));
+            selectedVoxels.clear();
+            originalMaterials.clear(); 
+            showMessage("Selection cleared.");
+            if (isPastingFromMouse) cancelVisualPasteMode(); 
+            updateUndoRedoButtons();
+            updateStatus();
+            render();
+        }
+
+
+        /* ───────── IMPORT/EXPORT PLACEHOLDERS ───────── */
+        function exportSceneSTL() {
+            showMessage("Export STL: Not yet implemented.", 3000);
+        }
+
+        function exportSceneJSON() {
+            try {
+                const sceneData = {
+                    gridSize: gridSize,
+                    selectedColor: selectedColor.toString(16), 
+                    voxels: Object.values(voxels).map(v => ({
+                        key: getVoxelKey(v.position), 
+                        color: v.color,
+                    })),
+                    camera: {
+                        type: camera === perspectiveCamera ? 'perspective' : 'orthographic',
+                        position: camera.position.toArray(),
+                        target: controls.target.toArray(),
+                        zoom: camera.zoom
+                    },
+                    showGrid: showGrid,
+                    isGridDark: isGridDark
+                };
+                const jsonString = JSON.stringify(sceneData, null, 2);
+                const blob = new Blob([jsonString], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "voxel-scene.json";
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showMessage("Scene exported as JSON.", 2500);
+            } catch(e) {
+                console.error("Error exporting JSON:", e);
+                showMessage("Error exporting scene as JSON.", 3000);
+            }
+        }
+        
+        fileImportInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const sceneData = JSON.parse(e.target.result);
+                    deselectAllVoxels();
+                    Object.keys(voxels).forEach(key => deleteVoxelInternal(getPositionFromKey(key)));
+                    voxels = {};
+                    undoStack.length = 0;
+                    redoStack.length = 0;
+                    
+
+                    gridSize = sceneData.gridSize || DEFAULT_GRID_SIZE;
+                    gridSizeInput.value = gridSize;
+                    
+                    const storedColor = sceneData.selectedColor ? parseInt(sceneData.selectedColor, 16) : DEFAULT_COLOR_HEX;
+                    updateColorSwatch(storedColor)
+
+                    showGrid = typeof sceneData.showGrid === 'boolean' ? sceneData.showGrid : true;
+                    isGridDark = typeof sceneData.isGridDark === 'boolean' ? sceneData.isGridDark : false; 
+                    
+                    createGridAndPlane(); 
+
+                    if (sceneData.voxels && Array.isArray(sceneData.voxels)) {
+                        sceneData.voxels.forEach(v => {
+                            if (v.key && typeof v.color === 'number') {
+                                addVoxelInternal(getPositionFromKey(v.key), v.color);
+                            }
+                        });
+                    }
+                    
+                    if (sceneData.camera) {
+                        camera = sceneData.camera.type === 'orthographic' ? orthographicCamera : perspectiveCamera;
+                    }
+                    setupCameraAndControls(); 
+
+                    showMessage(`Scene imported: ${sceneData.voxels ? sceneData.voxels.length : 0} voxels.`, 3000);
+                    saveToStorage(); 
+                    updateUndoRedoButtons();
+                    updateStatus();
+                    render();
+
+                } catch (err) {
+                    console.error("Error importing JSON:", err);
+                    showMessage("Failed to import JSON. Invalid file format.", 4000);
+                } finally {
+                    fileImportInput.value = ""; 
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        function importSceneJSON() {
+            fileImportInput.click(); 
+        }
+
+
+        /* ───────── EVENT LISTENERS ───────── */
+        function bindEventListeners() {
+            window.addEventListener('resize', () => {
+                if (!renderer || !camera || !canvasContainer) return;
+                if (canvasContainer.clientWidth === 0 || canvasContainer.clientHeight === 0) return;
+
+                const aspect = canvasContainer.clientWidth / canvasContainer.clientHeight;
+                if (camera === perspectiveCamera) {
+                    perspectiveCamera.aspect = aspect;
+                    perspectiveCamera.updateProjectionMatrix();
+                } else { 
+                    updateOrthoCameraProjection();
+                }
+                renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
+                render();
+            }, false);
+
+            addVoxelToolButton.addEventListener('click', () => setTool('add'));
+            selectToolButton.addEventListener('click', () => setTool('select'));
+            deleteVoxelToolButton.addEventListener('click', () => setTool('delete'));
+            paintBucketToolButton.addEventListener('click', () => setTool('paintbucket'));
+            eyedropperToolButton.addEventListener('click', () => setTool('eyedropper'));
+            
+            importJsonBtn.addEventListener('click', importSceneJSON);
+            exportStlBtn.addEventListener('click', exportSceneSTL);
+            exportJsonBtn.addEventListener('click', exportSceneJSON);
+
+            undoBtnMenu.addEventListener('click', performUndo);
+            redoBtnMenu.addEventListener('click', performRedo);
+            copyBtnMenu.addEventListener('click', execCopySelection);
+            pasteBtnMenu.addEventListener('click', execPasteSelection); 
+            deselectAllBtnMenu.addEventListener('click', () => execDeselectAll(true));
+            clearAllBtnMenu.addEventListener('click', execClearAllVoxels);
+            
+            toggleGridBtnMenu.addEventListener('click', execToggleGrid);
+            toggleGridStyleBtnMenu.addEventListener('click', execToggleGridStyle);
+            toggleCameraBtnMenu.addEventListener('click', execToggleCameraView);
+
+
+            gridSizeInput.addEventListener('change', handleGridSizeChange);
+            
+            // Color Picker Listeners
+            colorPickerBtn.addEventListener('click', openColorPicker);
+            colorPickerOkBtn.addEventListener('click', () => closeColorPicker(true));
+            colorPickerCancelBtn.addEventListener('click', () => closeColorPicker(false));
+            hueSlider.addEventListener('input', () => {
+                colorPickerHSL.h = hueSlider.value / 360;
+                drawSVCanvas();
+                const rect = svCanvas.getBoundingClientRect();
+                const indicatorLeft = parseFloat(colorIndicator.style.left) || (rect.width * colorPickerHSL.s);
+                const indicatorTop = parseFloat(colorIndicator.style.top) || (rect.height * (1-colorPickerHSL.l));
+                handleSVCanvasPick({ clientX: indicatorLeft + rect.left, clientY: indicatorTop + rect.top }, true);
+            });
+            
+            let isPickingColor = false;
+            svCanvas.parentElement.addEventListener('mousedown', e => {
+                isPickingColor = true;
+                handleSVCanvasPick(e, isPickingColor);
+            });
+            window.addEventListener('mousemove', e => {
+                 if (isPickingColor) handleSVCanvasPick(e, isPickingColor);
+            });
+            window.addEventListener('mouseup', e => {
+                isPickingColor = false;
+            });
+            
+            // --- Unified Keyboard Shortcut Handler ---
+            document.addEventListener('keydown', (event) => {
+                if (customModal.classList.contains("show")) {
+                    if (event.key === "Escape") hideCustomConfirm();
+                    return;
+                }
+                 if (colorPickerOpen) {
+                    if (event.key === "Escape") closeColorPicker(false);
+                    if (event.key === "Enter") closeColorPicker(true);
+                    return;
+                }
+
+                const activeEl = document.activeElement;
+                const key = event.key.toLowerCase();
+                const ctrlOrMeta = event.ctrlKey || event.metaKey;
+
+                if (activeEl && activeEl.tagName === 'INPUT' && !ctrlOrMeta && key !== 'escape') {
+                    return;
+                }
+
+                let handled = false;
+
+                if (ctrlOrMeta) {
+                    switch (key) {
+                        case 'z': performUndo(); handled = true; break;
+                        case 'y': performRedo(); handled = true; break;
+                        case 'c': if (selectedVoxels.size > 0) { execCopySelection(); handled = true; } break;
+                        case 'v': execPasteSelection(); handled = true; break;
+                    }
+                }
+                else {
+                    switch (key) {
+                        case 'a': setTool('add'); handled = true; break;
+                        case 's': setTool('select'); handled = true; break;
+                        case 'd': 
+                            if(selectedVoxels.size > 0) {
+                                execDeleteSelection();
+                            } else {
+                                setTool('delete'); 
+                            }
+                            handled = true; 
+                            break;
+                        case 'b': setTool('paintbucket'); handled = true; break;
+                        case 'i': setTool('eyedropper'); handled = true; break;
+                        case 'c': openColorPicker(); handled = true; break;
+                        case 'p': execToggleCameraView(); handled = true; break;
+                        case 'g': execToggleGrid(); handled = true; break;
+                        case 'escape':
+                            execDeselectAll(true);
+                            if (activeEl && typeof activeEl.blur === 'function') {
+                                activeEl.blur(); 
+                            }
+                            handled = true;
+                            break;
+                    }
+                }
+
+                if (handled) {
+                    event.preventDefault();
+                }
+            });
+
+            canvasContainer.addEventListener('pointermove', onCanvasPointerMove, false); 
+            canvasContainer.addEventListener('pointerdown', onCanvasPointerDown, false); 
+            canvasContainer.addEventListener('pointerup', onCanvasPointerUp, false); 
+            
+            canvasContainer.addEventListener('contextmenu', (event) => event.preventDefault());
+
+            modalConfirmBtn.addEventListener('click', () => {
+                if (confirmCallback) confirmCallback();
+                hideCustomConfirm();
+            });
+            modalCancelBtn.addEventListener('click', hideCustomConfirm);
+            customModal.addEventListener('click', (e) => { 
+                if (e.target === customModal) hideCustomConfirm();
+            });
+        }
+        
+        function showCustomConfirm(title, message, onConfirm, onCancel = null) {
+            modalTitle.textContent = title;
+            modalMessage.textContent = message;
+            confirmCallback = onConfirm;
+            customModal.classList.add("show");
+        }
+
+        function hideCustomConfirm() {
+            customModal.classList.remove("show");
+            confirmCallback = null;
+        }
+
+        /* ───────── POINTER EVENTS ON CANVAS (Refactored for Marquee & Camera Fix) ───────── */
+        const raycaster = new THREE.Raycaster();
+        const pointer = new THREE.Vector2(); // For storing raw clientX/Y relative to canvas for marquee
+        const ndcPointer = new THREE.Vector2(); // For converting to NDC for raycasting
+
+        function updatePointerCoords(event, targetVector = pointer) {
+            if(!renderer.domElement) return;
+            const rect = renderer.domElement.getBoundingClientRect();
+            targetVector.x = event.clientX - rect.left;
+            targetVector.y = event.clientY - rect.top;
+            
+            ndcPointer.x = (targetVector.x / rect.width) * 2 - 1;
+            ndcPointer.y = -(targetVector.y / rect.height) * 2 + 1;
+        }
+        
+        function getIntersectedObject(event) { 
+            if (event) updatePointerCoords(event); 
+            if (!camera) return null;
+            raycaster.setFromCamera(ndcPointer, camera);
+            
+            const voxelMeshes = Object.values(voxels).map(v => v.mesh);
+            let intersects = raycaster.intersectObjects(voxelMeshes, false); 
+            if (intersects.length > 0) {
+                return intersects[0]; 
+            }
+            if (!planeMesh) return null; 
+            intersects = raycaster.intersectObject(planeMesh, false); 
+            return intersects.length > 0 ? intersects[0] : null;
+        }
+
+        function onCanvasPointerDown(event) {
+            updatePointerCoords(event, marqueeStartPoint);
+            if (event.button !== 0) { // Handle non-left clicks normally
+                handleVoxelInteraction(event, getIntersectedObject(event));
+                return;
+            }
+
+            const intersect = getIntersectedObject(event);
+
+            if (currentTool === 'select') {
+                if ((event.ctrlKey || event.metaKey) && selectedVoxels.size > 0 && intersect && intersect.object !== planeMesh && selectedVoxels.has(getVoxelKey(intersect.object.position))) {
+                    isMovingSelection = true;
+                    if (controls) controls.enabled = false;
+                    canvasContainer.classList.add('grabbing-cursor');
+                    
+                    moveSelectionStartPoint.copy(intersect.point);
+                    moveSelectionOriginalPositions.clear();
+                    selectedVoxels.forEach(key => {
+                        if (voxels[key]) {
+                            moveSelectionOriginalPositions.set(key, voxels[key].position.clone());
+                        }
+                    });
+                    return;
+                }
+                
+                isMarqueeSelecting = true;
+                if (controls) controls.enabled = false;
+
+            } else {
+                if (selectedVoxels.size > 0 && !intersect) execDeselectAll(true);
+                handleVoxelInteraction(event, intersect);
+            }
+        }
+        
+        function onCanvasPointerMove(event) {
+            updatePointerCoords(event, marqueeEndPoint); 
+
+            if (isMarqueeSelecting) {
+                const x = Math.min(marqueeStartPoint.x, marqueeEndPoint.x);
+                const y = Math.min(marqueeStartPoint.y, marqueeEndPoint.y);
+                const width = Math.abs(marqueeStartPoint.x - marqueeEndPoint.x);
+                const height = Math.abs(marqueeStartPoint.y - marqueeEndPoint.y);
+                marqueeBoxElement.style.left = x + 'px';
+                marqueeBoxElement.style.top = y + 'px';
+                marqueeBoxElement.style.width = width + 'px';
+                marqueeBoxElement.style.height = height + 'px';
+                marqueeBoxElement.style.display = 'block';
+            } else if (isMovingSelection) {
+                const intersect = getIntersectedObject(event);
+                if (intersect) {
+                    const totalDisplacement = intersect.point.clone().sub(moveSelectionStartPoint);
+                    const snappedDisplacement = new THREE.Vector3(
+                        Math.round(totalDisplacement.x / VOXEL_SIZE) * VOXEL_SIZE,
+                        Math.round(totalDisplacement.y / VOXEL_SIZE) * VOXEL_SIZE,
+                        Math.round(totalDisplacement.z / VOXEL_SIZE)
+                    );
+
+                    moveSelectionOriginalPositions.forEach((originalPosition, key) => {
+                        const voxelData = voxels[key];
+                        if (voxelData && voxelData.mesh) {
+                            const newPosition = originalPosition.clone().add(snappedDisplacement);
+                            if (newPosition.y < VOXEL_SIZE / 2) {
+                                newPosition.y = VOXEL_SIZE / 2;
+                            }
+                            voxelData.mesh.position.copy(newPosition);
+                        }
+                    });
+                    render();
+                }
+            } else {
+                const intersect = getIntersectedObject(event); 
+                if (!rollOverMesh) return;
+                rollOverMesh.visible = (currentTool === 'add' || currentTool === 'delete' || currentTool === 'select' || isPastingFromMouse);
+
+                if (intersect && rollOverMesh.visible) {
+                    const hitObject = intersect.object;
+                    const hitPoint = intersect.point;
+                    const normal = intersect.face ? intersect.face.normal.clone().transformDirection(hitObject.matrixWorld).normalize() : new THREE.Vector3(0,1,0); 
+                    
+                    let snappedX, snappedY, snappedZ;
+
+                    if (currentTool === 'add' || isPastingFromMouse) { 
+                        if (hitObject === planeMesh) { 
+                            snappedX = Math.floor(hitPoint.x / VOXEL_SIZE) * VOXEL_SIZE + VOXEL_SIZE / 2;
+                            snappedY = VOXEL_SIZE / 2; 
+                            snappedZ = Math.floor(hitPoint.z / VOXEL_SIZE) * VOXEL_SIZE + VOXEL_SIZE / 2;
+                        } else { 
+                            const adjacentCellCenter = new THREE.Vector3().copy(hitObject.position).add(normal.multiplyScalar(VOXEL_SIZE));
+                            snappedX = Math.floor(adjacentCellCenter.x / VOXEL_SIZE) * VOXEL_SIZE + VOXEL_SIZE / 2;
+                            snappedY = Math.floor(adjacentCellCenter.y / VOXEL_SIZE) * VOXEL_SIZE + VOXEL_SIZE / 2;
+                            snappedZ = Math.floor(adjacentCellCenter.z / VOXEL_SIZE) * VOXEL_SIZE + VOXEL_SIZE / 2;
+                        }
+                        rollOverMesh.position.set(snappedX, snappedY, snappedZ);
+                        rollOverMesh.material.color.setHex(isPastingFromMouse ? 0x00aa00 : selectedColor);
+                        rollOverMesh.material.opacity = 0.3;
+                    } else if (currentTool === 'delete' && hitObject !== planeMesh) { 
+                        rollOverMesh.position.copy(hitObject.position); 
+                        rollOverMesh.material.color.setHex(0xff0000); 
+                        rollOverMesh.material.opacity = 0.4;
+                    } else if (currentTool === 'select') { 
+                        if (hitObject === planeMesh) {
+                            snappedX = Math.floor(hitPoint.x / VOXEL_SIZE) * VOXEL_SIZE + VOXEL_SIZE / 2;
+                            snappedY = VOXEL_SIZE / 2; 
+                            snappedZ = Math.floor(hitPoint.z / VOXEL_SIZE) * VOXEL_SIZE + VOXEL_SIZE / 2;
+                            rollOverMesh.position.set(snappedX, snappedY, snappedZ);
+                        } else {
+                            rollOverMesh.position.copy(hitObject.position);
+                        }
+                        rollOverMesh.material.color.setHex(0x00ff00); 
+                        rollOverMesh.material.opacity = 0.3;
+                    }
+                }
+                if (isPastingFromMouse) updatePastePreviewPosition();
+                render(); 
+            }
+        }
+
+        function onCanvasPointerUp(event) {
+            if (isMarqueeSelecting) {
+                isMarqueeSelecting = false;
+                marqueeBoxElement.style.display = 'none';
+
+                const clickThreshold = 5;
+                const distance = marqueeStartPoint.distanceTo(marqueeEndPoint);
+
+                if (distance < clickThreshold) {
+                    const rect = renderer.domElement.getBoundingClientRect();
+                    const intersect = getIntersectedObject({ clientX: marqueeStartPoint.x + rect.left, clientY: marqueeStartPoint.y + rect.top });
+                    
+                    if (!intersect) {
+                        if(selectedVoxels.size > 0) execDeselectAll(true);
+                    } else {
+                        handleVoxelInteraction({ button: 0, shiftKey: event.shiftKey }, intersect);
+                    }
+                } else { 
+                    performMarqueeSelection(event.shiftKey);
+                }
+            } else if (isMovingSelection) {
+                isMovingSelection = false;
+
+                const movedVoxelsData = [];
+                const newSelectedKeys = new Set();
+                const originalKeysBeforeMove = Array.from(moveSelectionOriginalPositions.keys());
+                
+                originalKeysBeforeMove.forEach(oldKey => {
+                    const oldVoxelData = voxels[oldKey];
+                    const originalPosition = moveSelectionOriginalPositions.get(oldKey);
+
+                    if (oldVoxelData && oldVoxelData.mesh && originalPosition) {
+                        const finalPosition = oldVoxelData.mesh.position.clone();
+                        const newKey = getVoxelKey(finalPosition);
+
+                        if (newKey !== oldKey) {
+                            movedVoxelsData.push({ 
+                                oldKey: oldKey, 
+                                newKey: newKey, 
+                                oldPosition: originalPosition,
+                                newPosition: finalPosition, 
+                                color: oldVoxelData.color 
+                            });
+                        }
+                        
+                        delete voxels[oldKey];
+                        voxels[newKey] = {
+                            mesh: oldVoxelData.mesh,
+                            color: oldVoxelData.color,
+                            position: finalPosition
+                        };
+                        newSelectedKeys.add(newKey);
+                    }
+                });
+                
+                selectedVoxels.clear();
+                originalMaterials.clear();
+                newSelectedKeys.forEach(key => {
+                    selectedVoxels.add(key);
+                    highlightVoxel(key, true);
+                });
+
+                if (movedVoxelsData.length > 0) {
+                    recordUndo({ type: 'moveSelection', movedVoxels: movedVoxelsData, previousSelection: originalKeysBeforeMove, newSelection: Array.from(newSelectedKeys) });
+                    saveToStorage();
+                }
+                
+                moveSelectionOriginalPositions.clear();
+                canvasContainer.classList.remove('grabbing-cursor');
+                updateStatus();
+                render();
+            }
+            if (controls) controls.enabled = true;
+        }
+        
+        function performMarqueeSelection(isShiftKey) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            const startX = Math.min(marqueeStartPoint.x, marqueeEndPoint.x);
+            const startY = Math.min(marqueeStartPoint.y, marqueeEndPoint.y);
+            const endX = Math.max(marqueeStartPoint.x, marqueeEndPoint.x);
+            const endY = Math.max(marqueeStartPoint.y, marqueeEndPoint.y);
+            
+            const previousSelectionForUndo = Array.from(selectedVoxels);
+            let changedByMarquee = false;
+
+            if (!isShiftKey) {
+                deselectAllVoxels(false); // Don't record undo yet
+            }
+
+            const newMarqueeSelectedKeys = new Set();
+
+            for (const key in voxels) {
+                const voxelData = voxels[key];
+                const pos = voxelData.position.clone();
+                const screenPos = pos.project(camera); 
+
+                const sx = (screenPos.x * 0.5 + 0.5) * rect.width;
+                const sy = (-screenPos.y * 0.5 + 0.5) * rect.height;
+
+                if (sx >= startX && sx <= endX && sy >= startY && sy <= endY) {
+                    if (!selectedVoxels.has(key)) {
+                        selectedVoxels.add(key);
+                        highlightVoxel(key, true);
+                        changedByMarquee = true;
+                    }
+                    newMarqueeSelectedKeys.add(key); 
+                }
+            }
+            
+            if (changedByMarquee || (!isShiftKey && previousSelectionForUndo.length > 0)) {
+                recordUndo({ type: 'marqueeSelect', previousSelection: previousSelectionForUndo, newSelection: Array.from(selectedVoxels) });
+            }
+            updateStatus();
+            updateUndoRedoButtons();
+            render();
+        }
+
+
+        function handleVoxelInteraction(event, intersect) {
+            if (isPastingFromMouse && event.button === 0) {
+                execPasteSelection(); 
+                return;
+            }
+
+            if (!intersect) { 
+                return; 
+            }
+            
+            const hitObject = intersect.object;
+            const hitPoint = intersect.point;
+            const normal = intersect.face ? intersect.face.normal.clone().transformDirection(hitObject.matrixWorld).normalize() : new THREE.Vector3(0,1,0);
+            let finalVoxelPosition = new THREE.Vector3();
+
+            if (event.button === 0) { // Left click
+                if (currentTool === 'select') {
+                    if (hitObject !== planeMesh) {
+                        const voxelKey = getVoxelKey(hitObject.position);
+                        const previouslySelectedForUndo = Array.from(selectedVoxels); 
+                        let selectionChanged = false;
+
+                        if (!event.shiftKey) {
+                            if(!selectedVoxels.has(voxelKey) || selectedVoxels.size > 1) { 
+                                deselectAllVoxels(false); // don't record here
+                                selectionChanged = true; 
+                            }
+                        }
+                        
+                        if (selectedVoxels.has(voxelKey)) {
+                            if (event.shiftKey) { 
+                                selectedVoxels.delete(voxelKey);
+                                highlightVoxel(voxelKey, false);
+                                selectionChanged = true;
+                            }
+                        } else {
+                            selectedVoxels.add(voxelKey);
+                            highlightVoxel(voxelKey, true);
+                            selectionChanged = true;
+                        }
+                        
+                        if(selectionChanged) {
+                             recordUndo({ type: 'marqueeSelect', previousSelection: previouslySelectedForUndo, newSelection: Array.from(selectedVoxels) });
+                        }
+                        updateStatus();
+                        updateUndoRedoButtons();
+                        render();
+                    }
+                } else if (currentTool === 'add') {
+                    if (hitObject === planeMesh) {
+                        finalVoxelPosition.x = Math.floor(hitPoint.x / VOXEL_SIZE) * VOXEL_SIZE + VOXEL_SIZE / 2;
+                        finalVoxelPosition.y = VOXEL_SIZE / 2; 
+                        finalVoxelPosition.z = Math.floor(hitPoint.z / VOXEL_SIZE) * VOXEL_SIZE + VOXEL_SIZE / 2;
+                    } else {
+                        const adjacentCellCenter = new THREE.Vector3().copy(hitObject.position).add(normal.multiplyScalar(VOXEL_SIZE));
+                        finalVoxelPosition.x = Math.floor(adjacentCellCenter.x / VOXEL_SIZE) * VOXEL_SIZE + VOXEL_SIZE / 2;
+                        finalVoxelPosition.y = Math.floor(adjacentCellCenter.y / VOXEL_SIZE) * VOXEL_SIZE + VOXEL_SIZE / 2;
+                        finalVoxelPosition.z = Math.floor(adjacentCellCenter.z / VOXEL_SIZE) * VOXEL_SIZE + VOXEL_SIZE / 2;
+                    }
+                    addVoxel(finalVoxelPosition, selectedColor);
+                } else if (hitObject !== planeMesh) { 
+                    const voxelKey = getVoxelKey(hitObject.position); 
+                    if (currentTool === 'delete') {
+                        deleteVoxel(hitObject.position); 
+                    } else if (currentTool === 'eyedropper') {
+                        if (voxels[voxelKey]) {
+                            updateColorSwatch(voxels[voxelKey].color);
+                            setTool('add'); 
+                            showMessage("Color picked. Switched to Add tool.");
+                        }
+                    } else if (currentTool === 'paintbucket') {
+                        applyPaintBucket(voxelKey, selectedColor);
+                    }
+                }
+            } else if (event.button === 2) { // Right click
+                if (hitObject !== planeMesh) { 
+                    deleteVoxel(hitObject.position);
+                }
+            }
+        }
+
+
+        /* ───────── RENDER LOOP ───────── */
+        function animate() {
+            requestAnimationFrame(animate);
+            if (controls.enabled) { 
+                if(controls.update()) render(); 
+            }
+        }
+        
+        function render() {
+            if (renderer && scene && camera) {
+                renderer.render(scene, camera);
+            }
+        }
+
+        /* ───────── INITIALIZATION ───────── */
+        function main() {
+            loadFromStorage(); 
+            setupMenus();
+            initThreeJS(); 
+            
+            gridSizeInput.value = gridSize;
+            updateColorSwatch(selectedColor);
+            
+            if (rollOverMesh) rollOverMesh.material.color.setHex(selectedColor);
+
+            createGridAndPlane(); 
+            setupCameraAndControls(); 
+            
+            bindEventListeners();
+            updateStatus();
+            updateUndoRedoButtons();
+            setTool('add'); 
+            
+            render(); 
+            animate(); 
+            if (!localStorage.getItem("voxelArtEditor_initial_load_message_shown")) {
+                showMessage("Voxel Editor Ready", 2500);
+            }
+        }
+
+        main();
+
+    </script>
+</body>
+</html>
